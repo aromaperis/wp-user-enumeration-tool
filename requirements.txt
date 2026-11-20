@@ -10,3 +10,8 @@ python-dotenv>=1.0.1
 
 # CLI Output Formatting
 rich>=13.7.0
+
+# Hermes supporting package
+requests
+psutil
+packaging
