@@ -1,0 +1,83 @@
+services:
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  wordpress:
+    image: wordpress:6.7-php8.3-apache
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WP_PORT:-8080}:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - wp_core:/var/www/html
+    depends_on:
+      db:
+        condition: service_healthy
+
+  wpcli:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    working_dir: /var/www/html
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      wordpress:
+        condition: service_started
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WP_PORT: ${WP_PORT:-8080}
+      WP_ADMIN_USER: ${WP_ADMIN_USER}
+      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD}
+      WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL}
+      EDITOR_PASSWORD: ${EDITOR_PASSWORD}
+      AUTHOR_PASSWORD: ${AUTHOR_PASSWORD}
+    volumes:
+      - wp_core:/var/www/html
+    command:
+      - /bin/sh
+      - -c
+      - |
+        sleep 5
+        if ! wp core is-installed; then
+          wp core install \
+            --url="http://localhost:$${WP_PORT}" \
+            --title="Vulnerable Audit Lab" \
+            --admin_user="$${WP_ADMIN_USER}" \
+            --admin_password="$${WP_ADMIN_PASSWORD}" \
+            --admin_email="$${WP_ADMIN_EMAIL}" \
+            --skip-email
+          wp rewrite structure '/%postname%/' --hard
+          wp user create editor_maya maya@example.local --role=editor --user_pass="$${EDITOR_PASSWORD}"
+          wp user create author_rohan rohan@example.local --role=author --user_pass="$${AUTHOR_PASSWORD}"
+          wp post create --post_title="Welcome Post" --post_content="Admin test post" --post_status=publish --post_author=1
+          wp post create --post_title="Editorial Note" --post_content="Editor test post" --post_status=publish --post_author=2
+          wp post create --post_title="Tech Review" --post_content="Author test post" --post_status=publish --post_author=3
+          echo "=== WordPress Lab Seeded Successfully ==="
+        else
+          echo "WordPress already installed. Skipping seeding."
+        fi
+
+volumes:
+  db_data:
+  wp_core:

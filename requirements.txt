@@ -1,0 +1,12 @@
+# Agent Framework
+git+https://github.com/NousResearch/hermes-agent.git
+
+# HTTP & Parsing
+httpx>=0.27.0
+
+# Configuration & Data Validation
+pydantic>=2.7.0
+python-dotenv>=1.0.1
+
+# CLI Output Formatting
+rich>=13.7.0
