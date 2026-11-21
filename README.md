@@ -41,6 +41,10 @@ A custom agent is built using Python, with `state.py` maintaining the assessment
 - MariaDB
 - Rich (Terminal UI)
 
+## Prerequisites
+- **Python 3.12** (tested on 3.12)
+- Docker & Docker Compose
+
 ## Setup
 
 **1. Install dependencies**
