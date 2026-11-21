@@ -1,6 +1,3 @@
-# Agent Framework
-git+https://github.com/NousResearch/hermes-agent.git
-
 # HTTP & Parsing
 httpx>=0.27.0
 

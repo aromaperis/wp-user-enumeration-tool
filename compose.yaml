@@ -66,9 +66,14 @@ services:
             --admin_email="$${WP_ADMIN_EMAIL}" \
             --skip-email
           wp rewrite structure '/%postname%/' --hard
+
+          # ID 1 is admin, ID 2 is editor_maya, ID 3 is author_rohan
           wp user create editor_maya maya@example.local --role=editor --user_pass="$${EDITOR_PASSWORD}"
           wp user create author_rohan rohan@example.local --role=author --user_pass="$${AUTHOR_PASSWORD}"
-          wp post create --post_title="Welcome Post" --post_content="Admin test post" --post_status=publish --post_author=1
+
+          wp user create contributor_sam sam@example.local --role=contributor --user_pass="$${CONTRIBUTOR_PASSWORD}"
+
+          # Posts for ID 2 and ID 3 
           wp post create --post_title="Editorial Note" --post_content="Editor test post" --post_status=publish --post_author=2
           wp post create --post_title="Tech Review" --post_content="Author test post" --post_status=publish --post_author=3
           echo "=== WordPress Lab Seeded Successfully ==="
