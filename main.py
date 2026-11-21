@@ -1,10 +1,13 @@
 import os
 from dotenv import load_dotenv
-import argparse
+import sys
 import json
 import uuid
+import httpx
 from openai import OpenAI
-from src.tools import TOOL_SCHEMAS, TOOL_MAP, DISCOVERED_USERS
+from src.registry import TOOL_MAP
+from src.schema import TOOL_SCHEMAS
+from src.state import DISCOVERED_USERS, reset_state
 
 load_dotenv()
 
@@ -18,24 +21,32 @@ client = OpenAI(
 )
 
 def run_enumeration(target_url: str):
+    reset_state()
     task_id = str(uuid.uuid4())[:8]
     print(f"[Task {task_id}] Starting enumeration on: {target_url}\n")
 
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are a WordPress security auditing assistant. "
-                "1. Start by calling check_rest_api. "
-                "2. Then run check_author_archives (IDs 1 to 10) to cross-check or discover additional users. "
-                "3. Once done, write a clear final report listing every discovered username, "
-                "its user ID, and the exact evidence/endpoint that exposed it."
-            )
+            "content": """You are a WordPress User Enumeration Audit Agent.
+                You have two tools:
+                1. `check_rest_api(base_url)`: Fetches published users from /wp-json/wp/v2/users.
+                2. `check_author_archives(base_url, start_id, end_id)`: Probes /?author=<id> across a range of numeric IDs to detect username exposure via HTTP redirects.
+
+                Reasoning Rules:
+                1. Always call `check_rest_api` first to discover exposed authors.
+                2. Remember the REST API limitation: WordPress hides users who have zero published posts (such as contributors or subscribers).
+                3. Analyze the IDs returned by the REST API. Do NOT re-check IDs already confirmed by the REST API. Instead, call `check_author_archives` with `start_id` and `end_id` covering any missing IDs in the sequence AND the next sequential IDs after the highest returned ID (e.g., if IDs 1-3 are returned, probe `start_id=4, end_id=6`) to uncover unpublished users.
+                4. Review the `newly_found` usernames, `location` headers, and `attempts` returned by `check_author_archives`. Stop probing once you hit 404 responses on consecutive IDs.
+                5. Output a concise Audit Report listing:
+                - Discovered Users (ID, Slug, Discovery Vector)
+                - Give crisp one liner explanation to the reason of vulnerability.
+                - Remediation Steps one or two in short""",
         },
         {
             "role": "user",
-            "content": f"Enumerate valid usernames on {target_url} and summarize the evidence."
-        }
+            "content": f"Audit {target_url} for WordPress user enumeration exposure and summarize the evidence.",
+        },
     ]
 
     step = 0
@@ -81,11 +92,23 @@ def run_enumeration(target_url: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="WordPress User Enumeration Agent")
-    parser.add_argument("--url", required=True, help="Target WordPress base URL (e.g. http://localhost:8080)")
-    args = parser.parse_args()
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <target_url>")
+        sys.exit(1)
 
-    final_report = run_enumeration(args.url)
+    target_url = sys.argv[-1]
+
+    try:
+        response = httpx.get(target_url, timeout=5, follow_redirects=True)
+        print(f"[+] Server is up ({response.status_code}). Starting enumeration...")
+    except httpx.ConnectError:
+        print(f"[!] Could not connect to {target_url}. Please make sure your Docker container or server is running (e.g., `docker compose up -d`).")
+        sys.exit(1)
+    except httpx.RequestError as e:
+        print(f"[!] Failed to reach {target_url}: {e}")
+        sys.exit(1)
+
+    final_report = run_enumeration(target_url)
 
     print("\n" + "=" * 50)
     print("FINAL ENUMERATION REPORT")
