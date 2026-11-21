@@ -11,3 +11,4 @@ rich>=13.7.0
 psutil # keep track of mem, cpu usage 
 packaging # to read the deps versions
 openai # for connecting to LLM models
+beautifulsoup4 # for parsing error leak html

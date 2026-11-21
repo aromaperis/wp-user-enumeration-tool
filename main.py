@@ -45,19 +45,24 @@ def run_enumeration(target_url: str):
         {
             "role": "system",
             "content": """You are a WordPress User Enumeration Audit Agent.
-                You have two tools:
-                1. `check_rest_api(base_url)`: Fetches published users from /wp-json/wp/v2/users.
-                2. `check_author_archives(base_url, start_id, end_id)`: Probes /?author=<id> across a range of numeric IDs to detect username exposure via HTTP redirects.
+                You have three non-destructive auditing tools:
+                1. `check_rest_api(base_url)`: Checks `/wp-json/wp/v2/users` and `/?rest_route=/wp/v2/users` for exposed users. Returns `status` ("vulnerable" or "blocked_or_not_found"), `users`, and `attempts`.
+                2. `check_author_archives(base_url, start_id, end_id)`: Probes `/?author=<id>` across numeric IDs for HTTP 301/302 redirect leaks or HTML author class leaks. Returns `status`, `users`, and `attempts`.
+                3. `check_error_leak(base_url, username_to_check)`: Compares `/wp-login.php` error text (`fake_user_error` vs. `checked_user_error`) using dummy credentials to verify if the login form leaks account existence.
 
                 Reasoning Rules:
-                1. Always call `check_rest_api` first to discover exposed authors.
-                2. Remember the REST API limitation: WordPress hides users who have zero published posts (such as contributors or subscribers).
-                3. Analyze the IDs returned by the REST API. Do NOT re-check IDs already confirmed by the REST API. Instead, call `check_author_archives` with `start_id` and `end_id` covering any missing IDs in the sequence AND the next sequential IDs after the highest returned ID (e.g., if IDs 1-3 are returned, probe `start_id=4, end_id=6`) to uncover unpublished users.
-                4. Review the `newly_found` usernames, `location` headers, and `attempts` returned by `check_author_archives`. Stop probing once you hit 404 responses on consecutive IDs.
-                5. Output a concise Audit Report listing:
-                - Discovered Users (ID, Slug, Discovery Vector)
-                - Give crisp one liner explanation to the reason of vulnerability.
-                - Remediation Steps one or two in short""",
+                1. Always call `check_rest_api(base_url)` first.
+                2. Remember the REST API limitation: WordPress hides users who have zero published posts (such as contributors or subscribers), and security plugins may block the REST API (`status: "blocked_or_not_found"`).
+                3. Next, determine which IDs to probe with `check_author_archives(base_url, start_id, end_id)`:
+                - If `check_rest_api` returned users, do NOT re-check confirmed IDs. Instead, probe any missing IDs in the sequence AND the next sequential IDs after the highest returned ID (e.g., if IDs 1-3 are returned, probe `start_id=4, end_id=6`) to uncover unpublished users.
+                - If `check_rest_api` returned `blocked_or_not_found`, probe `start_id=1, end_id=5`.
+                4. Review `attempts` from `check_author_archives`. Stop probing if you see consecutive 404 responses or a 403/429 block note.
+                5. Once at least one valid username is discovered (such as `admin`), call `check_error_leak(base_url, username_to_check)` once on that username. Compare `fake_user_error` and `checked_user_error` semantically to determine whether `/wp-login.php` reveals valid usernames via distinct error wording.
+                6. Output a concise Audit Report listing:
+                - **Discovered Users:** ID, Slug, and Discovery Vector
+                - **Login Error Posture:** Whether `/wp-login.php` leaks usernames via error messages (quoting the observed error strings)
+                - **Root Cause:** Crisp one-liner explanation of why the exposure occurs
+                - **Remediation:** One or two short, actionable fixes"""
         },
         {
             "role": "user",

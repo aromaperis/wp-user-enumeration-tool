@@ -36,5 +36,30 @@ TOOL_SCHEMAS = [
                 "required": ["base_url"],
             },
         },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_error_leak",
+            "description": (
+                "Compares /wp-login.php error messages between a non-existent baseline username "
+                "and a discovered candidate username using dummy passwords to verify whether the "
+                "login form leaks account existence via verbose error text."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "base_url": {
+                        "type": "string",
+                        "description": "The root URL of the target WordPress site (e.g., http://localhost:8080).",
+                    },
+                    "username_to_check": {
+                        "type": "string",
+                        "description": "A discovered username/slug (such as 'admin') to compare against the fake baseline user.",
+                    },
+                },
+                "required": ["base_url", "username_to_check"],
+            },
+        },
     }
 ]
