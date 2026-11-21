@@ -1,10 +1,15 @@
 import os
-from dotenv import load_dotenv
 import sys
 import json
 import uuid
 import httpx
+from dotenv import load_dotenv
 from openai import OpenAI
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
+
 from src.registry import TOOL_MAP
 from src.schema import TOOL_SCHEMAS
 from src.state import DISCOVERED_USERS, reset_state
@@ -12,18 +17,29 @@ from src.state import DISCOVERED_USERS, reset_state
 load_dotenv()
 
 MODEL_NAME = os.getenv("LLM_MODEL")
-API_KEY=os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("GEMINI_API_KEY")
 BASE_MODEL_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 client = OpenAI(
     base_url=BASE_MODEL_URL,
-    api_key=API_KEY
+    api_key=API_KEY,
 )
+console = Console()
+
 
 def run_enumeration(target_url: str):
     reset_state()
     task_id = str(uuid.uuid4())[:8]
-    print(f"[Task {task_id}] Starting enumeration on: {target_url}\n")
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]WordPress User Enumeration Audit[/bold cyan]\n"
+            f"[dim]Task ID:[/dim] [white]{task_id}[/white]  |  "
+            f"[dim]Target:[/dim] [bold yellow]{target_url}[/bold yellow]  |  "
+            f"[dim]Model:[/dim] [green]{MODEL_NAME}[/green]",
+            border_style="cyan",
+        )
+    )
 
     messages = [
         {
@@ -55,63 +71,84 @@ def run_enumeration(target_url: str):
     while step < max_steps:
         step += 1
 
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=TOOL_SCHEMAS,
-            tool_choice="auto",
-            temperature=0.0
-        )
+        with console.status(f"[bold cyan][Step {step}/{max_steps}] Agent reasoning...[/bold cyan]", spinner="dots"):
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=TOOL_SCHEMAS,
+                tool_choice="auto",
+                temperature=0.0,
+            )
 
         msg = response.choices[0].message
         messages.append(msg)
 
         if not msg.tool_calls:
-            print(f"\n[Task {task_id}] Completed in {step} step(s).")
+            console.print(f"[bold green]✔[/bold green] [dim][Task {task_id}] Completed in {step} step(s).[/dim]")
             return msg.content
 
         for tool_call in msg.tool_calls:
             fn_name = tool_call.function.name
             fn_args = json.loads(tool_call.function.arguments)
 
-            print(f"[Task {task_id} | Step {step}] Running {fn_name}({fn_args})")
+            console.print(
+                f"  [bold yellow]⚡ [Step {step}][/bold yellow] Calling [bold white]{fn_name}[/bold white]"
+                f"[dim]({fn_args})[/dim]"
+            )
 
-            if fn_name in TOOL_MAP:
-                tool_result = TOOL_MAP[fn_name](**fn_args)
-            else:
-                tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
+            with console.status(f"[dim]Running {fn_name}...[/dim]", spinner="line"):
+                if fn_name in TOOL_MAP:
+                    tool_result = TOOL_MAP[fn_name](**fn_args)
+                else:
+                    tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": fn_name,
-                "content": tool_result
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": fn_name,
+                    "content": tool_result,
+                }
+            )
 
     return "Stopped: reached maximum step limit."
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python main.py <target_url>")
+        console.print("[bold red]Usage:[/bold red] python main.py <target_url>")
         sys.exit(1)
 
     target_url = sys.argv[-1]
 
     try:
-        response = httpx.get(target_url, timeout=5, follow_redirects=True)
-        print(f"[+] Server is up ({response.status_code}). Starting enumeration...")
+        with console.status(f"[dim]Checking connectivity to {target_url}...[/dim]", spinner="dots"):
+            response = httpx.get(target_url, timeout=5, follow_redirects=True)
+        console.print(f"[bold green][+][/bold green] Server is reachable ([cyan]HTTP {response.status_code}[/cyan]). Starting enumeration...\n")
     except httpx.ConnectError:
-        print(f"[!] Could not connect to {target_url}. Please make sure your Docker container or server is running (e.g., `docker compose up -d`).")
+        console.print(
+            Panel(
+                f"[bold red]Connection Failed:[/bold red] Could not reach [yellow]{target_url}[/yellow].\n"
+                "Make sure your Docker container is running: [cyan]docker compose up -d[/cyan]",
+                border_style="red",
+            )
+        )
         sys.exit(1)
     except httpx.RequestError as e:
-        print(f"[!] Failed to reach {target_url}: {e}")
+        console.print(f"[bold red][!] Failed to reach {target_url}:[/bold red] {e}")
         sys.exit(1)
 
     final_report = run_enumeration(target_url)
 
-    print("\n" + "=" * 50)
-    print("FINAL ENUMERATION REPORT")
-    print("=" * 50)
-    print(final_report)
-    print("\nStored User Count:", len(DISCOVERED_USERS))
+    console.print("\n")
+    console.print(
+        Panel(
+            Markdown(final_report),
+            title="[bold green]FINAL ENUMERATION REPORT[/bold green]",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )
+
+    summary_table = Table(show_header=False, box=None)
+    console.print(summary_table)
