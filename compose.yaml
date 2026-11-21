@@ -1,7 +1,6 @@
 services:
   db:
     image: mariadb:10.11
-    restart: unless-stopped
     environment:
       MARIADB_DATABASE: ${DB_NAME}
       MARIADB_USER: ${DB_USER}
@@ -17,7 +16,6 @@ services:
 
   wordpress:
     image: wordpress:6.7-php8.3-apache
-    restart: unless-stopped
     ports:
       - "127.0.0.1:${WP_PORT:-8080}:80"
     environment:
